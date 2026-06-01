@@ -1,0 +1,206 @@
+---
+title: "Smoking, Sex, and Age as Predictors of Cardiac Risk: A Cohort Analysis"
+subtitle: "HRP 203: Methods for Reproducible Population Health and Clinical Research"
+author: "Assel Ibadulla"
+date: today
+format:
+  pdf:
+    fontsize: 11pt
+    geometry: margin=1in
+    fig-pos: "H"
+    number-sections: true
+
+execute:
+ echo: false
+ warning: false
+ message: false
+
+---
+
+```{r}
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+
+data <- read.csv("raw-data/cohort.csv")
+```
+
+# Introduction
+
+Cardiovascular disease remains a leading cause of morbidity and mortality worldwide, with age, biological sex, and tobacco use among its well-established risk factors. Understanding how these factors interact and jointly influence cardiac risk is important for public health, particularly for targeting preventive interventions and guiding resource allocation.
+
+This report analyzes a simulated cohort of 5,000 individuals to examine the relationship between smoking status, sex, age, and the incidence of cardiac events. The analysis proceeds in three steps. First, we describe the cohort's baseline characteristics and cardiac event rates across 4 subgroups - male smokers, female smokers, male non-smokers, and female non-smokers. Second, we estimate the probability of a cardiac event as a function of age, sex, and smoking status using logistic regression. Third, we visualize how predicted risk varies across 4 subgroups.
+
+# Methods
+
+The cohort consists of `r nrow(data)` simulated individuals, each described by five variables: age (continuous, in years), sex (binary: female = 1, male = 0), smoking status (binary: smoker = 1, non-smoker = 0), cardiac event occurrence (binary: yes = 1, no = 0), and annual healthcare cost in US dollars. There are no missing values.
+
+Cohort characteristics are summarized using means for continuous variables
+and counts with proportions for binary variables, stratified by sex and
+smoking status.
+
+To estimate the association between risk factors and cardiac events, we fit
+a logistic regression model. Let $Y_i \in \{0,1\}$ denote whether individual $i$ experienced a cardiac event. The model is:
+
+$$
+\log\left(\frac{P(Y_i=1)}{1-P(Y_i=1)}\right) = \beta_0 + \beta_1\,\text{age}_i + \beta_2\,\text{smoke}_i + \beta_3\,\text{female}_i
+$$
+
+where $\beta_1$, $\beta_2$, and $\beta_3$ represent the log-odds associated
+with age, smoking, and female sex, respectively. Exponentiated coefficients
+$e^{\hat{\beta}}$ are reported as odds ratios. All analyses were conducted in R.
+
+# Results
+
+## Cohort's baseline characteristics and cardiac event rates
+
+```{r}
+#| include: false
+
+#total values
+n_total <- nrow(data)
+n_male <- sum(data$female==0)
+n_female <-sum(data$female==1)
+n_smokers <-sum(data$smoke==1)
+n_events <- sum(data$cardiac==1)
+
+np <- function(n, total) sprintf("%d (%.1f%%)",n,100*n/total)
+
+male_smokers <- sum(data$female==0 & data$smoke==1)
+female_smokers <- sum(data$female==1 & data$smoke==1)
+events_male <- sum(data$female==0 & data$cardiac==1)
+events_female <- sum(data$female==1 & data$cardiac==1)
+events_smokers <- sum(data$smoke==1 & data$cardiac==1)
+events_nonsmokers <- sum(data$smoke==0 & data$cardiac==1)
+events_malesmoker <- sum(data$female==0 & data$smoke==1 & data$cardiac==1)
+events_femalesmoker <- sum(data$female==1 & data$smoke==1 & data$cardiac==1)
+
+#model
+fit <- glm(cardiac ~ age+smoke+female, data = data, family=binomial)
+or <- exp(coef(fit))
+ci <- exp(confint.default(fit))
+
+data$pred <- predict(fit, type = "response")
+data$group <- case_when(
+data$female==0 & data$smoke==1 ~ "Male smoker",
+data$female==1 & data$smoke==1 ~ "Female smoker",
+data$female==0 & data$smoke==0 ~ "Male non-smoker",
+TRUE ~ "Female non-smoker"
+)
+data$group <- factor(data$group,
+levels = c("Male smoker", "Female smoker",
+             "Male non-smoker", "Female non-smoker"))
+```
+
+The cohort comprised `r n_total` individuals with a mean age of `r round(mean(data$age), 1)` years. Of these, `r np(n_female, n_total)` were female and `r np(n_smokers, n_total)` were current smokers. Table 1 summarizes cohort characteristics and cardiac event rates across subgroups.
+
+```{r}
+
+tbl <- data.frame(
+  Characteristic = c(
+    "Total cohort (N)",
+    "Mean age, years",
+    "Mean annual cost, USD",
+    "Male",
+    "Female",
+    "Smokers (overall)",
+    "Male smokers (of all males)",
+    "Female smokers (of all females)",
+    "Cardiac events (overall)",
+    "Events in males",
+    "Events in females",
+    "Events in smokers",
+    "Events in non-smokers",
+    "Events in male smokers",
+    "Events in female smokers"
+  ),
+  Value = c(
+    as.character(n_total),
+    sprintf("%.1f", mean(data$age)),
+    sprintf("$%.0f", mean(data$cost)),
+    np(n_male, n_total),
+    np(n_female, n_total),
+    np(n_smokers, n_total),
+    np(male_smokers, n_male),
+    np(female_smokers, n_female),
+    np(n_events, n_total),
+    np(events_male, n_male),
+    np(events_female, n_female),
+    np(events_smokers, n_smokers),
+    np(events_nonsmokers, sum(data$smoke==0)),
+    np(events_malesmoker, male_smokers),
+    np(events_femalesmoker, female_smokers)
+  )
+)
+
+kable(tbl,
+      col.names = c("Characteristic", "N (%) or Mean"),
+      booktabs  = TRUE,
+      caption   = "Cohort characteristics and cardiac event rates by subgroup")
+```
+
+Event rates varied substantially across subgroups: males experienced a higher 
+event rate (`r round(events_male/n_male*100, 1)`%) than females 
+(`r round(events_female/n_female*100, 1)`%), and smokers had a considerably 
+higher rate (`r round(events_smokers/n_smokers*100, 1)`%) than non-smokers 
+(`r round(events_nonsmokers/sum(data$smoke==0)*100, 1)`%). The highest event rate was observed among male smokers at 
+`r round(events_malesmoker/male_smokers*100, 1)`%, as illustrated in Figure 1.
+
+## Subgroup event rates
+
+```{r}
+#| fig-cap: "Observed cardiac event rate (%) by sex and smoking status subgroup"
+
+
+data |>
+  group_by(group) |>
+  summarise(rate=mean(cardiac)*100) |>
+  ggplot(aes(x = group, y = rate, fill = group)) +
+  geom_col(show.legend = FALSE) +
+  scale_fill_manual(values = c(
+    "Male smoker"       = "#C0392B",
+    "Female smoker"     = "#2980B9",
+    "Male non-smoker"   = "#8E44AD",
+    "Female non-smoker" = "#27AE60"
+  )) +
+  labs(x = NULL, y="Cardiac Event Rate (%)") +
+  theme_classic()
+```
+
+## Logistic regression and predicted risk
+
+Logistic regression confirmed the patterns observed in the raw data. Smoking was the strongest predictor of cardiac events, with an odds ratio of `r round(or["smoke"], 1)` (95% CI: `r round(ci["smoke",1], 1)`–`r round(ci["smoke",2], 1)`), indicating that smokers had approximately `r round(or["smoke"], 0)` times the odds of a cardiac event compared to non-smokers of the same age and sex. Female sex was strongly protective: women had `r round((1 - or["female"]) * 100, 0)`% lower odds than men (OR = `r round(or["female"], 2)`, 95% CI: `r round(ci["female",1], 2)`–`r round(ci["female",2], 2)`). Age was a small but statistically significant positive predictor (OR per year = `r round(or["age"], 3)`, 95% CI: `r round(ci["age",1], 3)`–`r round(ci["age",2], 3)`). Figure 2 plots model-predicted probabilities across the observed age range, stratified by subgroup.
+
+```{r}
+#| fig-cap: "Model-predicted probability of cardiac event by age, sex, and smoking status."
+
+ggplot(data, aes(x = age, y = pred, color = group)) +
+  geom_point(alpha = 0.3, size = 0.7) +
+  geom_smooth(method = "loess", se = FALSE) +
+  scale_color_manual(values = c(
+    "Male smoker"       = "#C0392B",
+    "Female smoker"     = "#2980B9",
+    "Male non-smoker"   = "#8E44AD",
+    "Female non-smoker" = "#27AE60"
+  )) +
+  labs(x = "Age (years)", y = "Predicted probability") +
+  theme_classic()
+```
+
+The four groups are clearly separated across the age range. Male smokers show the highest predicted risk, approaching 50% by age 72, while female non-smokers maintain near-zero predicted risk throughout. Notably, the absolute gap between male and female smokers is considerably larger than the gap between male and female non-smokers, suggesting a potential sex-by-smoking interaction not captured by the additive model.
+
+# Discussion
+
+This analysis of a simulated cohort of 5,000 individuals demonstrates that smoking status, sex, and age are strong predictors of cardiac event risk. Smoking was the dominant predictor, with smokers facing approximately 9.6 times the odds of a cardiac event compared to non-smokers. Female sex was strongly protective, and age had a small but consistent positive effect across all subgroups.
+
+The most notable pattern in the data is the interaction between sex and smoking. Male smokers had an event rate exceeding 40%, while female smokers remained below 5%, which is far larger than what an additive model would predict. This suggests that smoking may operate through different mechanisms in men and women, or that unmeasured confounders differ across these groups. For instance, hormonal differences, smoking intensity, or duration of exposure may contribute to the observed disparity. Also, type of cigarettes, such as light vs regular, could contribute to differential risk if consumption patterns vary systematically by sex. Overall, this pattern should be studied further.
+
+Several limitations should be noted. First of all, the data are simulated, so findings do not carry direct clinical implications. Secondly, the model includes only three predictors, and important confounders such as physical activity, diet, socioeconomic status, access to healthcare, body mass index, and alcohol consumption are absent. For example, individuals with lower socioeconomic status might be more likely to smoke and less likely to access preventive care, which could inflate the estimated effect of smoking. Similarly, physical inactivity and poor diet independently increase cardiac risk and may be more prevalent among smokers, further confounding the association. Including these variables would likely attenuate some of the observed associations and provide a more accurate picture of the independent influence of smoking and sex on cardiac risk.
+
+Additionally, the cost variable was available in the dataset but was not included in this analysis, as the primary focus was on estimating and visualizing cardiac event risk across subgroups. However, healthcare costs likely differ substantially across subgroups given their significantly different event rates, and cost analysis could be valuable in quantifying the economic burden associated with smoking. Thus, it should be studied further.
+
+In conclusion, this analysis highlights smoking and male sex as the strongest predictors of cardiac event risk, with their combination producing particularly elevated risk. This suggests that targeting tobacco cessation interventions at male smokers in particular could yield substantial reductions in population-level cardiac event rates.
+
+## Generative AI Statement
+I attest to the fact that I did not use generative AI technology (e.g., ChatGPT) to complete any portion of the work.
+
